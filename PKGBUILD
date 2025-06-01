@@ -1,37 +1,50 @@
 # Maintainer: David Runge <dvzrv@archlinux.org>
 # Maintainer: Giancarlo Razzolini <grazzolini@archlinux.org>
+# Maintainer: Anton Hvornum <torxed@archlinux.org>
 # Contributor: Anton Hvornum <anton@hvornum.se>
 # Contributor: demostanis worlds <demostanis@protonmail.com>
 
 pkgname=archinstall
-pkgver=2.6.0
-pkgrel=1
+pkgver=3.0.7
+pkgrel=3
 pkgdesc="Just another guided/automated Arch Linux installer with a twist"
 arch=(any)
 url="https://github.com/archlinux/archinstall"
-license=(GPL3)
+license=(GPL-3.0-only)
 depends=(
   'arch-install-scripts'
   'btrfs-progs'
   'coreutils'
   'cryptsetup'
+  'dosfstools'
   'e2fsprogs'
   'glibc'
   'kbd'
+  'libcrypt.so'
+  'libxcrypt'
   'pciutils'
   'procps-ng'
   'python'
+  'python-cryptography'
+  'python-pydantic'
   'python-pyparted'
-  'python-simple-term-menu'
   'systemd'
   'util-linux'
+  'xfsprogs'
+  'lvm2'
+  'f2fs-tools'
+  'ntfs-3g'
 )
 makedepends=(
-  'python-setuptools'
-  'python-sphinx'
   'python-build'
   'python-installer'
+  'python-setuptools'
+  'python-sphinx'
   'python-wheel'
+  'python-sphinx_rtd_theme'
+  'python-pylint'
+  'python-pylint-pydantic'
+  'ruff'
 )
 optdepends=(
   'python-systemd: Adds journald logging'
@@ -40,26 +53,22 @@ provides=(python-archinstall archinstall)
 conflicts=(python-archinstall archinstall-git)
 replaces=(python-archinstall archinstall-git)
 source=(
-  $pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz
-  $pkgname-$pkgver.tar.gz.sig::$url/releases/download/v$pkgver/$pkgname-$pkgver.tar.gz.sig
+  $pkgname-$pkgver.tar.gz::$url/archive/refs/tags/$pkgver.tar.gz
+  $pkgname-$pkgver.tar.gz.sig::$url/releases/download/$pkgver/$pkgname-$pkgver.tar.gz.sig
 )
-sha512sums=('64cb3593c5091b3885ad14ef073cfab31090b4f9bcb4405b18cf9b19adb5ca42255ba8891ec62e21f92d59872541ef6d94f186fb05c625822af63525441e08d9'
-            'SKIP')
-b2sums=('9c0ec0871841804377ba8310dc744711adcec4eed7319a8d89d684af8e7b822bb9d47540b00f4d746a9fcd7b9ea1b9e07bac773e6c28fabc760e4df38b16748b'
-        'SKIP')
-validpgpkeys=('256F73CEEFC6705C6BBAB20E5FBBB32941E3740A') # Anton Hvornum (Torxed) <anton@hvornum.se>
+sha512sums=()
+b2sums=()
+validpgpkeys=('8AA2213C8464C82D879C8127D4B58E897A929F2E') # torxed@archlinux.org
+
+check() {
+  cd $pkgname-$pkgver
+  ruff check
+}
 
 pkgver() {
   cd $pkgname-$pkgver
 
   awk '$1 ~ /^__version__/ {gsub("\"", ""); print $3}' archinstall/__init__.py
-}
-
-prepare() {
-  cd $pkgname-$pkgver
-
-  # use real directories for examples and profiles, as symlinks do not work
-  rm -fv $pkgname/{examples,profiles}
 }
 
 build() {

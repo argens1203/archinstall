@@ -1,29 +1,29 @@
-from typing import Optional, List, Any, TYPE_CHECKING
+from typing import override
 
-from archinstall.default_profiles.profile import ProfileType, GreeterType
+from archinstall.default_profiles.profile import GreeterType, ProfileType
 from archinstall.default_profiles.xorg import XorgProfile
-
-if TYPE_CHECKING:
-	_: Any
 
 
 class I3wmProfile(XorgProfile):
-	def __init__(self):
-		super().__init__('i3-wm', ProfileType.WindowMgr, description='')
+	def __init__(self) -> None:
+		super().__init__('i3-wm', ProfileType.WindowMgr)
 
 	@property
-	def packages(self) -> List[str]:
+	@override
+	def packages(self) -> list[str]:
 		return [
 			'i3-wm',
 			'i3lock',
 			'i3status',
 			'i3blocks',
+			'xss-lock',
 			'xterm',
 			'lightdm-gtk-greeter',
 			'lightdm',
-			'dmenu'
+			'dmenu',
 		]
 
 	@property
-	def default_greeter_type(self) -> Optional[GreeterType]:
+	@override
+	def default_greeter_type(self) -> GreeterType:
 		return GreeterType.Lightdm

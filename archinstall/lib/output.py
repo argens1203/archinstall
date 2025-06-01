@@ -1,25 +1,27 @@
 import logging
 import os
 import sys
-import unicodedata
-from enum import Enum
-
-from pathlib import Path
-from typing import Dict, Union, List, Any, Callable, Optional
+from collections.abc import Callable
 from dataclasses import asdict, is_dataclass
+from datetime import UTC, datetime
+from enum import Enum
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
-from .storage import storage
+from .utils.unicode import unicode_ljust, unicode_rjust
+
+if TYPE_CHECKING:
+	from _typeshed import DataclassInstance
 
 
 class FormattedOutput:
-
 	@classmethod
 	def _get_values(
 		cls,
-		o: Any,
-		class_formatter: Optional[Union[str, Callable]] = None,
-		filter_list: List[str] = []
-	) -> Dict[str, Any]:
+		o: 'DataclassInstance',
+		class_formatter: str | Callable | None = None,  # type: ignore[type-arg]
+		filter_list: list[str] = [],
+	) -> dict[str, Any]:
 		"""
 		the original values returned a dataclass as dict thru the call to some specific methods
 		this version allows thru the parameter class_formatter to call a dynamically selected formatting method.
@@ -43,17 +45,17 @@ class FormattedOutput:
 		elif is_dataclass(o):
 			return asdict(o)
 		else:
-			return o.__dict__
+			return o.__dict__  # type: ignore[unreachable]
 
 	@classmethod
 	def as_table(
 		cls,
-		obj: List[Any],
-		class_formatter: Optional[Union[str, Callable]] = None,
-		filter_list: List[str] = [],
-		capitalize: bool = False
+		obj: list[Any],
+		class_formatter: str | Callable | None = None,  # type: ignore[type-arg]
+		filter_list: list[str] = [],
+		capitalize: bool = False,
 	) -> str:
-		""" variant of as_table (subtly different code) which has two additional parameters
+		"""variant of as_table (subtly different code) which has two additional parameters
 		filter which is a list of fields which will be shon
 		class_formatter a special method to format the outgoing data
 
@@ -64,7 +66,7 @@ class FormattedOutput:
 		raw_data = [cls._get_values(o, class_formatter, filter_list) for o in obj]
 
 		# determine the maximum column size
-		column_width: Dict[str, int] = {}
+		column_width: dict[str, int] = {}
 		for o in raw_data:
 			for k, v in o.items():
 				if not filter_list or k in filter_list:
@@ -97,9 +99,9 @@ class FormattedOutput:
 				value = record.get(key, '')
 
 				if '!' in key:
-					value = '*' * width
+					value = '*' * len(value)
 
-				if isinstance(value, (int, float)) or (isinstance(value, str) and value.isnumeric()):
+				if isinstance(value, int | float) or (isinstance(value, str) and value.isnumeric()):
 					obj_data.append(unicode_rjust(str(value), width))
 				else:
 					obj_data.append(unicode_ljust(str(value), width))
@@ -109,7 +111,7 @@ class FormattedOutput:
 		return output
 
 	@classmethod
-	def as_columns(cls, entries: List[str], cols: int) -> str:
+	def as_columns(cls, entries: list[str], cols: int) -> str:
 		"""
 		Will format a list into a given number of columns
 		"""
@@ -117,7 +119,7 @@ class FormattedOutput:
 		output = ''
 
 		for i in range(0, len(entries), cols):
-			chunks.append(entries[i:i + cols])
+			chunks.append(entries[i : i + cols])
 
 		for row in chunks:
 			out_fmt = '{: <30} ' * len(row)
@@ -130,12 +132,12 @@ class Journald:
 	@staticmethod
 	def log(message: str, level: int = logging.DEBUG) -> None:
 		try:
-			import systemd.journal  # type: ignore
+			import systemd.journal  # type: ignore[import-not-found]
 		except ModuleNotFoundError:
 			return None
 
 		log_adapter = logging.getLogger('archinstall')
-		log_fmt = logging.Formatter("[%(levelname)s]: %(message)s")
+		log_fmt = logging.Formatter('[%(levelname)s]: %(message)s')
 		log_ch = systemd.journal.JournalHandler()
 		log_ch.setFormatter(log_fmt)
 		log_adapter.addHandler(log_ch)
@@ -144,30 +146,46 @@ class Journald:
 		log_adapter.log(level, message)
 
 
-def _check_log_permissions():
-	filename = storage.get('LOG_FILE', None)
-	log_dir = storage.get('LOG_PATH', Path('./'))
+class Logger:
+	def __init__(self, path: Path = Path('/var/log/archinstall')) -> None:
+		self._path = path
 
-	if not filename:
-		raise ValueError('No log file name defined')
+	@property
+	def path(self) -> Path:
+		return self._path / 'install.log'
 
-	log_file = log_dir / filename
+	@property
+	def directory(self) -> Path:
+		return self._path
 
-	try:
-		log_dir.mkdir(exist_ok=True, parents=True)
-		log_file.touch(exist_ok=True)
+	def _check_permissions(self) -> None:
+		log_file = self.path
 
-		with log_file.open('a') as fp:
-			fp.write('')
-	except PermissionError:
-		# Fallback to creating the log file in the current folder
-		fallback_dir = Path('./').absolute()
-		fallback_log_file = fallback_dir / filename
+		try:
+			self._path.mkdir(exist_ok=True, parents=True)
+			log_file.touch(exist_ok=True)
 
-		fallback_log_file.touch(exist_ok=True)
+			with log_file.open('a') as f:
+				f.write('')
+		except PermissionError:
+			# Fallback to creating the log file in the current folder
+			logger._path = Path('./').absolute()
 
-		storage['LOG_PATH'] = fallback_dir
-		warn(f'Not enough permission to place log file at {log_file}, creating it in {fallback_log_file} instead')
+			warn(
+				f'Not enough permission to place log file at {log_file},',
+				'creating it in {logger.path} instead'
+			)
+
+	def log(self, level: int, content: str) -> None:
+		self._check_permissions()
+
+		with self.path.open('a') as f:
+			ts = _timestamp()
+			level_name = logging.getLevelName(level)
+			f.write(f'[{ts}] - {level_name} - {content}\n')
+
+
+logger = Logger()
 
 
 def _supports_color() -> bool:
@@ -199,9 +217,9 @@ class Font(Enum):
 def _stylize_output(
 	text: str,
 	fg: str,
-	bg: Optional[str],
+	bg: str | None,
 	reset: bool,
-	font: List[Font] = [],
+	font: list[Font] = [],
 ) -> str:
 	"""
 	Heavily influenced by:
@@ -212,21 +230,21 @@ def _stylize_output(
 	Adds styling to a text given a set of color arguments.
 	"""
 	colors = {
-		'black' : '0',
-		'red' : '1',
-		'green' : '2',
-		'yellow' : '3',
-		'blue' : '4',
-		'magenta' : '5',
-		'cyan' : '6',
-		'white' : '7',
-		'teal' : '8;5;109',      # Extended 256-bit colors (not always supported)
-		'orange' : '8;5;208',    # https://www.lihaoyi.com/post/BuildyourownCommandLinewithANSIescapecodes.html#256-colors
-		'darkorange' : '8;5;202',
-		'gray' : '8;5;246',
-		'grey' : '8;5;246',
-		'darkgray' : '8;5;240',
-		'lightgray' : '8;5;256'
+		'black': '0',
+		'red': '1',
+		'green': '2',
+		'yellow': '3',
+		'blue': '4',
+		'magenta': '5',
+		'cyan': '6',
+		'white': '7',
+		'teal': '8;5;109',  # Extended 256-bit colors (not always supported)
+		'orange': '8;5;208',  # https://www.lihaoyi.com/post/BuildyourownCommandLinewithANSIescapecodes.html#256-colors
+		'darkorange': '8;5;202',
+		'gray': '8;5;246',
+		'grey': '8;5;246',
+		'darkgray': '8;5;240',
+		'lightgray': '8;5;256',
 	}
 
 	foreground = {key: f'3{colors[key]}' for key in colors}
@@ -234,7 +252,7 @@ def _stylize_output(
 	code_list = []
 
 	if text == '' and reset:
-		return '\x1b[%sm' % '0'
+		return '\x1b[0m'
 
 	code_list.append(foreground[str(fg)])
 
@@ -253,21 +271,26 @@ def info(
 	*msgs: str,
 	level: int = logging.INFO,
 	fg: str = 'white',
-	bg: Optional[str] = None,
+	bg: str | None = None,
 	reset: bool = False,
-	font: List[Font] = []
-):
+	font: list[Font] = [],
+) -> None:
 	log(*msgs, level=level, fg=fg, bg=bg, reset=reset, font=font)
+
+
+def _timestamp() -> str:
+	now = datetime.now(tz=UTC)
+	return now.strftime('%Y-%m-%d %H:%M:%S')
 
 
 def debug(
 	*msgs: str,
 	level: int = logging.DEBUG,
 	fg: str = 'white',
-	bg: Optional[str] = None,
+	bg: str | None = None,
 	reset: bool = False,
-	font: List[Font] = []
-):
+	font: list[Font] = [],
+) -> None:
 	log(*msgs, level=level, fg=fg, bg=bg, reset=reset, font=font)
 
 
@@ -275,21 +298,21 @@ def error(
 	*msgs: str,
 	level: int = logging.ERROR,
 	fg: str = 'red',
-	bg: Optional[str] = None,
+	bg: str | None = None,
 	reset: bool = False,
-	font: List[Font] = []
-):
+	font: list[Font] = [],
+) -> None:
 	log(*msgs, level=level, fg=fg, bg=bg, reset=reset, font=font)
 
 
 def warn(
 	*msgs: str,
-	level: int = logging.WARN,
+	level: int = logging.WARNING,
 	fg: str = 'yellow',
-	bg: Optional[str] = None,
+	bg: str | None = None,
 	reset: bool = False,
-	font: List[Font] = []
-):
+	font: list[Font] = [],
+) -> None:
 	log(*msgs, level=level, fg=fg, bg=bg, reset=reset, font=font)
 
 
@@ -297,63 +320,22 @@ def log(
 	*msgs: str,
 	level: int = logging.INFO,
 	fg: str = 'white',
-	bg: Optional[str] = None,
+	bg: str | None = None,
 	reset: bool = False,
-	font: List[Font] = []
-):
-	# leave this check here as we need to setup the logging
-	# right from the beginning when the modules are loaded
-	_check_log_permissions()
+	font: list[Font] = [],
+) -> None:
+	text = ' '.join([str(x) for x in msgs])
 
-	text = orig_string = ' '.join([str(x) for x in msgs])
+	logger.log(level, text)
 
 	# Attempt to colorize the output if supported
 	# Insert default colors and override with **kwargs
 	if _supports_color():
 		text = _stylize_output(text, fg, bg, reset, font)
 
-	log_file: Path = storage['LOG_PATH'] / storage['LOG_FILE']
-
-	with log_file.open('a') as fp:
-		fp.write(f"{orig_string}\n")
-
 	Journald.log(text, level=level)
 
-	from .menu import Menu
-	if not Menu.is_menu_active():
-		# Finally, print the log unless we skipped it based on level.
-		# We use sys.stdout.write()+flush() instead of print() to try and
-		# fix issue #94
-		if level != logging.DEBUG or storage.get('arguments', {}).get('verbose', False):
-			sys.stdout.write(f"{text}\n")
-			sys.stdout.flush()
+	if level != logging.DEBUG:
+		from archinstall.tui.curses_menu import Tui
 
-def _count_wchars(string: str) -> int:
-	"Count the total number of wide characters contained in a string"
-	return sum(unicodedata.east_asian_width(c) in 'FW' for c in string)
-
-def unicode_ljust(string: str, width: int, fillbyte: str = ' ') -> str:
-	"""Return a left-justified unicode string of length width.
-	>>> unicode_ljust('Hello', 15, '*')
-	'Hello**********'
-	>>> unicode_ljust('你好', 15, '*')
-	'你好***********'
-	>>> unicode_ljust('안녕하세요', 15, '*')
-	'안녕하세요*****'
-	>>> unicode_ljust('こんにちは', 15, '*')
-	'こんにちは*****'
-	"""
-	return string.ljust(width - _count_wchars(string), fillbyte)
-
-def unicode_rjust(string: str, width: int, fillbyte: str = ' ') -> str:
-	"""Return a right-justified unicode string of length width.
-	>>> unicode_rjust('Hello', 15, '*')
-	'**********Hello'
-	>>> unicode_rjust('你好', 15, '*')
-	'***********你好'
-	>>> unicode_rjust('안녕하세요', 15, '*')
-	'*****안녕하세요'
-	>>> unicode_rjust('こんにちは', 15, '*')
-	'*****こんにちは'
-	"""
-	return string.rjust(width - _count_wchars(string), fillbyte)
+		Tui.print(text)

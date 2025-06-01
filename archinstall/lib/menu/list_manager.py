@@ -1,24 +1,25 @@
 import copy
-from os import system
-from typing import Any, TYPE_CHECKING, Dict, Optional, Tuple, List
+from typing import cast
 
-from .menu import Menu
+from archinstall.lib.menu.menu_helper import MenuHelper
+from archinstall.lib.translationhandler import tr
+from archinstall.tui.curses_menu import SelectMenu
+from archinstall.tui.menu_item import MenuItem, MenuItemGroup
+from archinstall.tui.result import ResultType
+from archinstall.tui.types import Alignment
 
-if TYPE_CHECKING:
-	_: Any
 
-
-class ListManager:
+class ListManager[ValueT]:
 	def __init__(
 		self,
-		prompt: str,
-		entries: List[Any],
-		base_actions: List[str],
-		sub_menu_actions: List[str]
+		entries: list[ValueT],
+		base_actions: list[str],
+		sub_menu_actions: list[str],
+		prompt: str | None = None,
 	):
 		"""
 		:param prompt:  Text which will appear at the header
-		type param: string | DeferredTranslation
+		type param: string
 
 		:param entries: list/dict of option to be shown / manipulated
 		type param: list
@@ -33,21 +34,20 @@ class ListManager:
 		self._original_data = copy.deepcopy(entries)
 		self._data = copy.deepcopy(entries)
 
-		explainer = str(_('\n Choose an object from the list, and select one of the available actions for it to execute'))
-		self._prompt = prompt if prompt else explainer
+		self._prompt = prompt
 
 		self._separator = ''
-		self._confirm_action = str(_('Confirm and exit'))
-		self._cancel_action = str(_('Cancel'))
+		self._confirm_action = tr('Confirm and exit')
+		self._cancel_action = tr('Cancel')
 
 		self._terminate_actions = [self._confirm_action, self._cancel_action]
 		self._base_actions = base_actions
 		self._sub_menu_actions = sub_menu_actions
 
-		self._last_choice: Optional[str] = None
+		self._last_choice: ValueT | str | None = None
 
 	@property
-	def last_choice(self) -> Optional[str]:
+	def last_choice(self) -> ValueT | str | None:
 		return self._last_choice
 
 	def is_last_choice_cancel(self) -> bool:
@@ -55,101 +55,93 @@ class ListManager:
 			return self._last_choice == self._cancel_action
 		return False
 
-	def run(self) -> List[Any]:
+	def run(self) -> list[ValueT]:
+		additional_options = self._base_actions + self._terminate_actions
+
 		while True:
-			# this will return a dictionary with the key as the menu entry to be displayed
-			# and the value is the original value from the self._data container
-			data_formatted = self.reformat(self._data)
-			options, header = self._prepare_selection(data_formatted)
+			group = MenuHelper(
+				data=self._data,
+				additional_options=additional_options,
+			).create_menu_group()
 
-			system('clear')
+			prompt = None
+			if self._prompt is not None:
+				prompt = f'{self._prompt}\n\n'
 
-			choice = Menu(
-				self._prompt,
-				options,
-				sort=False,
-				clear_screen=False,
-				clear_menu_on_exit=False,
-				header=header,
-				skip_empty_entries=True,
-				skip=False,
-				show_search_hint=False
+			prompt = None
+
+			result = SelectMenu[ValueT | str](
+				group,
+				header=prompt,
+				search_enabled=False,
+				allow_skip=False,
+				alignment=Alignment.CENTER,
 			).run()
 
-			if choice.value in self._base_actions:
-				self._data = self.handle_action(choice.value, None, self._data)
-			elif choice.value in self._terminate_actions:
+			match result.type_:
+				case ResultType.Selection:
+					value = result.get_value()
+				case _:
+					raise ValueError('Unhandled return type')
+
+			if value in self._base_actions:
+				value = cast(str, value)
+				self._data = self.handle_action(value, None, self._data)
+			elif value in self._terminate_actions:
 				break
 			else:  # an entry of the existing selection was chosen
-				selected_entry = data_formatted[choice.value]  # type: ignore
+				selected_entry = result.get_value()
+				selected_entry = cast(ValueT, selected_entry)
+
 				self._run_actions_on_entry(selected_entry)
 
-		self._last_choice = choice.value  # type: ignore
+		self._last_choice = value
 
-		if choice.value == self._cancel_action:
+		if result.get_value() == self._cancel_action:
 			return self._original_data  # return the original list
 		else:
 			return self._data
 
-	def _prepare_selection(self, data_formatted: Dict[str, Any]) -> Tuple[List[str], str]:
-		# header rows are mapped to None so make sure
-		# to exclude those from the selectable data
-		options: List[str] = [key for key, val in data_formatted.items() if val is not None]
-		header = ''
-
-		if len(options) > 0:
-			table_header = [key for key, val in data_formatted.items() if val is None]
-			header = '\n'.join(table_header)
-
-		if len(options) > 0:
-			options.append(self._separator)
-
-		options += self._base_actions
-		options += self._terminate_actions
-
-		return options, header
-
-	def _run_actions_on_entry(self, entry: Any):
+	def _run_actions_on_entry(self, entry: ValueT) -> None:
 		options = self.filter_options(entry, self._sub_menu_actions) + [self._cancel_action]
-		display_value = self.selected_action_display(entry)
 
-		prompt = _("Select an action for '{}'").format(display_value)
+		items = [MenuItem(o, value=o) for o in options]
+		group = MenuItemGroup(items, sort_items=False)
 
-		choice = Menu(
-			prompt,
-			options,
-			sort=False,
-			clear_screen=False,
-			clear_menu_on_exit=False,
-			show_search_hint=False
+		header = f'{self.selected_action_display(entry)}\n'
+
+		result = SelectMenu[str](
+			group,
+			header=header,
+			search_enabled=False,
+			allow_skip=False,
+			alignment=Alignment.CENTER,
 		).run()
 
-		if choice.value and choice.value != self._cancel_action:
-			self._data = self.handle_action(choice.value, entry, self._data)
+		match result.type_:
+			case ResultType.Selection:
+				value = result.get_value()
+			case _:
+				raise ValueError('Unhandled return type')
 
-	def selected_action_display(self, selection: Any) -> str:
+		if value != self._cancel_action:
+			self._data = self.handle_action(value, entry, self._data)
+
+	def selected_action_display(self, selection: ValueT) -> str:
 		"""
 		this will return the value to be displayed in the
 		"Select an action for '{}'" string
 		"""
 		raise NotImplementedError('Please implement me in the child class')
 
-	def reformat(self, data: List[Any]) -> Dict[str, Optional[Any]]:
-		"""
-		this should return a dictionary of display string to actual data entry
-		mapping; if the value for a given display string is None it will be used
-		in the header value (useful when displaying tables)
-		"""
-		raise NotImplementedError('Please implement me in the child class')
-
-	def handle_action(self, action: Any, entry: Optional[Any], data: List[Any]) -> List[Any]:
+	def handle_action(self, action: str, entry: ValueT | None, data: list[ValueT]) -> list[ValueT]:
 		"""
 		this function is called when a base action or
 		a specific action for an entry is triggered
 		"""
 		raise NotImplementedError('Please implement me in the child class')
 
-	def filter_options(self, selection: Any, options: List[str]) -> List[str]:
+	def filter_options(self, selection: ValueT, options: list[str]) -> list[str]:
 		"""
 		filter which actions to show for an specific selection
 		"""

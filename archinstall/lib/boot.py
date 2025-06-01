@@ -1,5 +1,6 @@
 import time
-from typing import Iterator, Optional
+from collections.abc import Iterator
+
 from .exceptions import SysCallError
 from .general import SysCommand, SysCommandWorker, locate_binary
 from .installer import Installer
@@ -11,12 +12,12 @@ class Boot:
 	def __init__(self, installation: Installer):
 		self.instance = installation
 		self.container_name = 'archinstall'
-		self.session: Optional[SysCommandWorker] = None
+		self.session: SysCommandWorker | None = None
 		self.ready = False
 
 	def __enter__(self) -> 'Boot':
 		if (existing_session := storage.get('active_boot', None)) and existing_session.instance != self.instance:
-			raise KeyError("Archinstall only supports booting up one instance, and a active session is already active and it is not this one.")
+			raise KeyError('Archinstall only supports booting up one instance and another session is already active.')
 
 		if existing_session:
 			self.session = existing_session.session
@@ -24,14 +25,18 @@ class Boot:
 		else:
 			# '-P' or --console=pipe  could help us not having to do a bunch
 			# of os.write() calls, but instead use pipes (stdin, stdout and stderr) as usual.
-			self.session = SysCommandWorker([
-				'/usr/bin/systemd-nspawn',
-				'-D', str(self.instance.target),
-				'--timezone=off',
-				'-b',
-				'--no-pager',
-				'--machine', self.container_name
-			])
+			self.session = SysCommandWorker(
+				[
+					'systemd-nspawn',
+					'-D',
+					str(self.instance.target),
+					'--timezone=off',
+					'-b',
+					'--no-pager',
+					'--machine',
+					self.container_name,
+				]
+			)
 
 		if not self.ready and self.session:
 			while self.session.is_alive():
@@ -42,18 +47,18 @@ class Boot:
 		storage['active_boot'] = self
 		return self
 
-	def __exit__(self, *args :str, **kwargs :str) -> None:
+	def __exit__(self, *args: str, **kwargs: str) -> None:
 		# b''.join(sys_command('sync')) # No need to, since the underlying fs() object will call sync.
 		# TODO: https://stackoverflow.com/questions/28157929/how-to-safely-handle-an-exception-inside-a-context-manager
 
 		if len(args) >= 2 and args[1]:
 			error(
 				args[1],
-				f"The error above occurred in a temporary boot-up of the installation {self.instance}"
+				f'The error above occurred in a temporary boot-up of the installation {self.instance}',
 			)
 
 		shutdown = None
-		shutdown_exit_code: Optional[int] = -1
+		shutdown_exit_code: int | None = -1
 
 		try:
 			shutdown = SysCommand(f'systemd-run --machine={self.container_name} --pty shutdown now')
@@ -73,14 +78,13 @@ class Boot:
 			session_exit_code = self.session.exit_code if self.session else -1
 
 			raise SysCallError(
-				f"Could not shut down temporary boot of {self.instance}: {session_exit_code}/{shutdown_exit_code}",
-				exit_code=next(filter(bool, [session_exit_code, shutdown_exit_code]))
+				f'Could not shut down temporary boot of {self.instance}: {session_exit_code}/{shutdown_exit_code}',
+				exit_code=next(filter(bool, [session_exit_code, shutdown_exit_code])),
 			)
 
 	def __iter__(self) -> Iterator[bytes]:
 		if self.session:
-			for value in self.session:
-				yield value
+			yield from self.session
 
 	def __contains__(self, key: bytes) -> bool:
 		if self.session is None:
@@ -94,7 +98,7 @@ class Boot:
 
 		return self.session.is_alive()
 
-	def SysCommand(self, cmd: list, *args, **kwargs) -> SysCommand:
+	def SysCommand(self, cmd: list[str], *args, **kwargs) -> SysCommand:
 		if cmd[0][0] != '/' and cmd[0][:2] != './':
 			# This check is also done in SysCommand & SysCommandWorker.
 			# However, that check is done for `machinectl` and not for our chroot command.
@@ -102,10 +106,10 @@ class Boot:
 
 			cmd[0] = locate_binary(cmd[0])
 
-		return SysCommand(["systemd-run", f"--machine={self.container_name}", "--pty", *cmd], *args, **kwargs)
+		return SysCommand(['systemd-run', f'--machine={self.container_name}', '--pty', *cmd], *args, **kwargs)
 
-	def SysCommandWorker(self, cmd: list, *args, **kwargs) -> SysCommandWorker:
+	def SysCommandWorker(self, cmd: list[str], *args, **kwargs) -> SysCommandWorker:
 		if cmd[0][0] != '/' and cmd[0][:2] != './':
 			cmd[0] = locate_binary(cmd[0])
 
-		return SysCommandWorker(["systemd-run", f"--machine={self.container_name}", "--pty", *cmd], *args, **kwargs)
+		return SysCommandWorker(['systemd-run', f'--machine={self.container_name}', '--pty', *cmd], *args, **kwargs)

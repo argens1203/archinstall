@@ -1,24 +1,23 @@
-from typing import List, Optional, Any, TYPE_CHECKING
+from typing import override
 
-from archinstall.default_profiles.profile import ProfileType, GreeterType
+from archinstall.default_profiles.profile import GreeterType, ProfileType
 from archinstall.default_profiles.xorg import XorgProfile
-
-if TYPE_CHECKING:
-	_: Any
 
 
 class DeepinProfile(XorgProfile):
-	def __init__(self):
-		super().__init__('Deepin', ProfileType.DesktopEnv, description='')
+	def __init__(self) -> None:
+		super().__init__('Deepin', ProfileType.DesktopEnv)
 
 	@property
-	def packages(self) -> List[str]:
+	@override
+	def packages(self) -> list[str]:
 		return [
-			"deepin",
-			"deepin-terminal",
-			"deepin-editor"
+			'deepin',
+			'deepin-terminal',
+			'deepin-editor',
 		]
 
 	@property
-	def default_greeter_type(self) -> Optional[GreeterType]:
+	@override
+	def default_greeter_type(self) -> GreeterType:
 		return GreeterType.Lightdm

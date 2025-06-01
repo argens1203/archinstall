@@ -1,50 +1,41 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, TYPE_CHECKING, List, Optional
+from typing import override
 
-from .utils import get_password
-from ..menu import Menu, ListManager
+from archinstall.lib.translationhandler import tr
+from archinstall.tui.curses_menu import EditMenu, SelectMenu
+from archinstall.tui.menu_item import MenuItem, MenuItemGroup
+from archinstall.tui.result import ResultType
+from archinstall.tui.types import Alignment, Orientation
+
+from ..menu.list_manager import ListManager
 from ..models.users import User
-from ..output import FormattedOutput
-
-if TYPE_CHECKING:
-	_: Any
+from ..utils.util import get_password
 
 
-class UserList(ListManager):
-	"""
-	subclass of ListManager for the managing of user accounts
-	"""
-
-	def __init__(self, prompt: str, lusers: List[User]):
+class UserList(ListManager[User]):
+	def __init__(self, prompt: str, lusers: list[User]):
 		self._actions = [
-			str(_('Add a user')),
-			str(_('Change password')),
-			str(_('Promote/Demote user')),
-			str(_('Delete User'))
+			tr('Add a user'),
+			tr('Change password'),
+			tr('Promote/Demote user'),
+			tr('Delete User'),
 		]
-		super().__init__(prompt, lusers, [self._actions[0]], self._actions[1:])
 
-	def reformat(self, data: List[User]) -> Dict[str, Any]:
-		table = FormattedOutput.as_table(data)
-		rows = table.split('\n')
+		super().__init__(
+			lusers,
+			[self._actions[0]],
+			self._actions[1:],
+			prompt,
+		)
 
-		# these are the header rows of the table and do not map to any User obviously
-		# we're adding 2 spaces as prefix because the menu selector '> ' will be put before
-		# the selectable rows so the header has to be aligned
-		display_data: Dict[str, Optional[User]] = {f'  {rows[0]}': None, f'  {rows[1]}': None}
+	@override
+	def selected_action_display(self, selection: User) -> str:
+		return selection.username
 
-		for row, user in zip(rows[2:], data):
-			row = row.replace('|', '\\|')
-			display_data[row] = user
-
-		return display_data
-
-	def selected_action_display(self, user: User) -> str:
-		return user.username
-
-	def handle_action(self, action: str, entry: Optional[User], data: List[User]) -> List[User]:
+	@override
+	def handle_action(self, action: str, entry: User | None, data: list[User]) -> list[User]:
 		if action == self._actions[0]:  # add
 			new_user = self._add_user()
 			if new_user is not None:
@@ -53,8 +44,9 @@ class UserList(ListManager):
 				data = [d for d in data if d.username != new_user.username]
 				data += [new_user]
 		elif action == self._actions[1] and entry:  # change password
-			prompt = str(_('Password for user "{}": ').format(entry.username))
-			new_password = get_password(prompt=prompt)
+			header = f'{tr("User")}: {entry.username}\n'
+			new_password = get_password(tr('Password'), header=header)
+
 			if new_password:
 				user = next(filter(lambda x: x == entry, data))
 				user.password = new_password
@@ -66,45 +58,62 @@ class UserList(ListManager):
 
 		return data
 
-	def _check_for_correct_username(self, username: str) -> bool:
-		if re.match(r'^[a-z_][a-z0-9_-]*\$?$', username) and len(username) <= 32:
-			return True
-		return False
-
-	def _add_user(self) -> Optional[User]:
-		prompt = '\n\n' + str(_('Enter username (leave blank to skip): '))
-
-		while True:
-			try:
-				username = input(prompt).strip(' ')
-			except (KeyboardInterrupt, EOFError):
+	def _check_for_correct_username(self, username: str | None) -> str | None:
+		if username is not None:
+			if re.match(r'^[a-z_][a-z0-9_-]*\$?$', username) and len(username) <= 32:
 				return None
+		return tr('The username you entered is invalid')
 
-			if not username:
+	def _add_user(self) -> User | None:
+		editResult = EditMenu(
+			tr('Username'),
+			allow_skip=True,
+			validator=self._check_for_correct_username,
+		).input()
+
+		match editResult.type_:
+			case ResultType.Skip:
 				return None
-			if not self._check_for_correct_username(username):
-				error_prompt = str(_("The username you entered is invalid. Try again"))
-				print(error_prompt)
-			else:
-				break
+			case ResultType.Selection:
+				username = editResult.text()
+			case _:
+				raise ValueError('Unhandled result type')
 
-		password = get_password(prompt=str(_('Password for user "{}": ').format(username)))
+		if not username:
+			return None
+
+		header = f'{tr("Username")}: {username}\n'
+
+		password = get_password(tr('Password'), header=header, allow_skip=True)
 
 		if not password:
 			return None
 
-		choice = Menu(
-			str(_('Should "{}" be a superuser (sudo)?')).format(username), Menu.yes_no(),
-			skip=False,
-			default_option=Menu.yes(),
-			clear_screen=False,
-			show_search_hint=False
+		header += f'{tr("Password")}: {password.hidden()}\n\n'
+		header += str(tr('Should "{}" be a superuser (sudo)?\n')).format(username)
+
+		group = MenuItemGroup.yes_no()
+		group.focus_item = MenuItem.yes()
+
+		result = SelectMenu[bool](
+			group,
+			header=header,
+			alignment=Alignment.CENTER,
+			columns=2,
+			orientation=Orientation.HORIZONTAL,
+			search_enabled=False,
+			allow_skip=False,
 		).run()
 
-		sudo = True if choice.value == Menu.yes() else False
+		match result.type_:
+			case ResultType.Selection:
+				sudo = result.item() == MenuItem.yes()
+			case _:
+				raise ValueError('Unhandled result type')
+
 		return User(username, password, sudo)
 
 
-def ask_for_additional_users(prompt: str = '', defined_users: List[User] = []) -> List[User]:
+def ask_for_additional_users(prompt: str = '', defined_users: list[User] = []) -> list[User]:
 	users = UserList(prompt, defined_users).run()
 	return users

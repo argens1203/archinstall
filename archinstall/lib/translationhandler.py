@@ -1,17 +1,12 @@
 from __future__ import annotations
 
+import builtins
+import gettext
 import json
 import os
-import gettext
 from dataclasses import dataclass
-
 from pathlib import Path
-from typing import List, Dict, Any, TYPE_CHECKING, Optional
-
-from .output import error, debug
-
-if TYPE_CHECKING:
-	_: Any
+from typing import override
 
 
 @dataclass
@@ -20,7 +15,7 @@ class Language:
 	name_en: str
 	translation: gettext.NullTranslations
 	translation_percent: int
-	translated_lang: Optional[str]
+	translated_lang: str | None
 
 	@property
 	def display_name(self) -> str:
@@ -39,7 +34,7 @@ class Language:
 
 
 class TranslationHandler:
-	def __init__(self):
+	def __init__(self) -> None:
 		self._base_pot = 'base.pot'
 		self._languages = 'languages.json'
 
@@ -47,10 +42,10 @@ class TranslationHandler:
 		self._translated_languages = self._get_translations()
 
 	@property
-	def translated_languages(self) -> List[Language]:
+	def translated_languages(self) -> list[Language]:
 		return self._translated_languages
 
-	def _get_translations(self) -> List[Language]:
+	def _get_translations(self) -> list[Language]:
 		"""
 		Load all translated languages and return a list of such
 		"""
@@ -60,7 +55,7 @@ class TranslationHandler:
 		languages = []
 
 		for short_form in defined_languages:
-			mapping_entry: Dict[str, Any] = next(filter(lambda x: x['abbr'] == short_form, mappings))
+			mapping_entry: dict[str, str] = next(filter(lambda x: x['abbr'] == short_form, mappings))
 			abbr = mapping_entry['abbr']
 			lang = mapping_entry['lang']
 			translated_lang = mapping_entry.get('translated_lang', None)
@@ -85,25 +80,14 @@ class TranslationHandler:
 
 		return languages
 
-	def _set_font(self, font: str):
-		"""
-		Set the provided font as the new terminal font
-		"""
-		from .general import SysCommand
-		try:
-			debug(f'Setting font: {font}')
-			SysCommand(f'setfont {font}')
-		except Exception:
-			error(f'Unable to set font {font}')
-
-	def _load_language_mappings(self) -> List[Dict[str, Any]]:
+	def _load_language_mappings(self) -> list[dict[str, str]]:
 		"""
 		Load the mapping table of all known languages
 		"""
 		locales_dir = self._get_locales_dir()
 		languages = Path.joinpath(locales_dir, self._languages)
 
-		with open(languages, 'r') as fp:
+		with open(languages) as fp:
 			return json.load(fp)
 
 	def _get_catalog_size(self, translation: gettext.NullTranslations) -> int:
@@ -112,7 +96,7 @@ class TranslationHandler:
 		"""
 		# this is a very naughty way of retrieving the data but
 		# there's no alternative method exposed unfortunately
-		catalog = translation._catalog  # type: ignore
+		catalog = translation._catalog  # type: ignore[attr-defined]
 		messages = {k: v for k, v in catalog.items() if k and v}
 		return len(messages)
 
@@ -121,7 +105,7 @@ class TranslationHandler:
 		Get total messages that could be translated
 		"""
 		locales = self._get_locales_dir()
-		with open(f'{locales}/{self._base_pot}', 'r') as fp:
+		with open(f'{locales}/{self._base_pot}') as fp:
 			lines = fp.readlines()
 			msgid_lines = [line for line in lines if 'msgid' in line]
 
@@ -145,10 +129,11 @@ class TranslationHandler:
 		except Exception:
 			raise ValueError(f'No language with abbreviation "{abbr}" found')
 
-	def activate(self, language: Language):
+	def activate(self, language: Language) -> None:
 		"""
 		Set the provided language as the current translation
 		"""
+		# The install() call has the side effect of assigning GNUTranslations.gettext to builtins._
 		language.translation.install()
 
 	def _get_locales_dir(self) -> Path:
@@ -159,7 +144,7 @@ class TranslationHandler:
 		locales_dir = Path.joinpath(cur_path, 'locales')
 		return locales_dir
 
-	def _provided_translations(self) -> List[str]:
+	def _provided_translations(self) -> list[str]:
 		"""
 		Get a list of all known languages
 		"""
@@ -174,36 +159,25 @@ class TranslationHandler:
 		return translation_files
 
 
-class DeferredTranslation:
+class _DeferredTranslation:
 	def __init__(self, message: str):
 		self.message = message
 
-	def __len__(self) -> int:
-		return len(self.message)
-
+	@override
 	def __str__(self) -> str:
-		translate = _
-		if translate is DeferredTranslation:
+		if builtins._ is _DeferredTranslation:  # type: ignore[attr-defined]
 			return self.message
-		return translate(self.message)
 
-	def __lt__(self, other) -> bool:
-		return self.message < other
+		# builtins._ is changed from _DeferredTranslation to GNUTranslations.gettext after
+		# Language.activate() is called
+		return builtins._(self.message)  # type: ignore[attr-defined]
 
-	def __gt__(self, other) -> bool:
-		return self.message > other
 
-	def __add__(self, other) -> DeferredTranslation:
-		if isinstance(other, str):
-			other = DeferredTranslation(other)
+def tr(message: str) -> str:
+	return str(_DeferredTranslation(message))
 
-		concat = self.message + other.message
-		return DeferredTranslation(concat)
 
-	def format(self, *args) -> str:
-		return self.message.format(*args)
+builtins._ = _DeferredTranslation  # type: ignore[attr-defined]
 
-	@classmethod
-	def install(cls):
-		import builtins
-		builtins._ = cls  # type: ignore
+
+translation_handler = TranslationHandler()

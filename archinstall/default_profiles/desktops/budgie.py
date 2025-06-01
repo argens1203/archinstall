@@ -1,26 +1,25 @@
-from typing import List, Optional, Any, TYPE_CHECKING
+from typing import override
 
-from archinstall.default_profiles.profile import ProfileType, GreeterType
+from archinstall.default_profiles.profile import GreeterType, ProfileType
 from archinstall.default_profiles.xorg import XorgProfile
-
-if TYPE_CHECKING:
-	_: Any
 
 
 class BudgieProfile(XorgProfile):
-	def __init__(self):
-		super().__init__('Budgie', ProfileType.DesktopEnv, description='')
+	def __init__(self) -> None:
+		super().__init__('Budgie', ProfileType.DesktopEnv)
 
 	@property
-	def packages(self) -> List[str]:
+	@override
+	def packages(self) -> list[str]:
 		return [
-			"arc-gtk-theme",
-			"budgie",
-			"mate-terminal",
-			"nemo",
-			"papirus-icon-theme"
+			'materia-gtk-theme',
+			'budgie',
+			'mate-terminal',
+			'nemo',
+			'papirus-icon-theme',
 		]
 
 	@property
-	def default_greeter_type(self) -> Optional[GreeterType]:
+	@override
+	def default_greeter_type(self) -> GreeterType:
 		return GreeterType.LightdmSlick

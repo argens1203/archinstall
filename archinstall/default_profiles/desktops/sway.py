@@ -1,77 +1,81 @@
-from enum import Enum
-from typing import List, Optional, TYPE_CHECKING, Any
+from typing import override
 
-from archinstall.default_profiles.profile import ProfileType, GreeterType
+from archinstall.default_profiles.desktops import SeatAccess
+from archinstall.default_profiles.profile import GreeterType, ProfileType
 from archinstall.default_profiles.xorg import XorgProfile
-from archinstall.lib.menu import Menu
-
-if TYPE_CHECKING:
-	from archinstall.lib.installer import Installer
-	_: Any
-
-
-class SeatAccess(Enum):
-	seatd = 'seatd'
-	polkit = 'polkit'
+from archinstall.lib.translationhandler import tr
+from archinstall.tui.curses_menu import SelectMenu
+from archinstall.tui.menu_item import MenuItem, MenuItemGroup
+from archinstall.tui.result import ResultType
+from archinstall.tui.types import Alignment, FrameProperties
 
 
 class SwayProfile(XorgProfile):
-	def __init__(self):
+	def __init__(self) -> None:
 		super().__init__(
 			'Sway',
 			ProfileType.WindowMgr,
-			description=''
 		)
 
 		self.custom_settings = {'seat_access': None}
 
 	@property
-	def packages(self) -> List[str]:
+	@override
+	def packages(self) -> list[str]:
 		additional = []
 		if seat := self.custom_settings.get('seat_access', None):
 			additional = [seat]
 
 		return [
-			"sway",
-			"swaybg",
-			"swaylock",
-			"swayidle",
-			"waybar",
-			"dmenu",
-			"brightnessctl",
-			"grim",
-			"slurp",
-			"pavucontrol",
-			"foot",
-			"xorg-xwayland"
+			'sway',
+			'swaybg',
+			'swaylock',
+			'swayidle',
+			'waybar',
+			'wmenu',
+			'brightnessctl',
+			'grim',
+			'slurp',
+			'pavucontrol',
+			'foot',
+			'xorg-xwayland',
 		] + additional
 
 	@property
-	def default_greeter_type(self) -> Optional[GreeterType]:
+	@override
+	def default_greeter_type(self) -> GreeterType:
 		return GreeterType.Lightdm
 
 	@property
-	def services(self) -> List[str]:
+	@override
+	def services(self) -> list[str]:
 		if pref := self.custom_settings.get('seat_access', None):
 			return [pref]
 		return []
 
-	def _ask_seat_access(self):
+	def _ask_seat_access(self) -> None:
 		# need to activate seat service and add to seat group
-		title = str(_('Sway needs access to your seat (collection of hardware devices i.e. keyboard, mouse, etc)'))
-		title += str(_('\n\nChoose an option to give Sway access to your hardware'))
+		header = tr('Sway needs access to your seat (collection of hardware devices i.e. keyboard, mouse, etc)')
+		header += '\n' + tr('Choose an option to give Sway access to your hardware') + '\n'
 
-		options = [e.value for e in SeatAccess]
-		default = None
+		items = [MenuItem(s.value, value=s) for s in SeatAccess]
+		group = MenuItemGroup(items, sort_items=True)
 
-		if seat := self.custom_settings.get('seat_access', None):
-			default = seat
+		default = self.custom_settings.get('seat_access', None)
+		group.set_default_by_value(default)
 
-		choice = Menu(title, options, skip=False, preset_values=default).run()
-		self.custom_settings['seat_access'] = choice.single_value
+		result = SelectMenu[SeatAccess](
+			group,
+			header=header,
+			allow_skip=False,
+			frame=FrameProperties.min(tr('Seat access')),
+			alignment=Alignment.CENTER,
+		).run()
 
-	def do_on_select(self):
+		if result.type_ == ResultType.Selection:
+			self.custom_settings['seat_access'] = result.get_value().value
+
+	@override
+	def do_on_select(self) -> None:
 		self._ask_seat_access()
-
-	def install(self, install_session: 'Installer'):
-		super().install(install_session)
+		return None

@@ -11,11 +11,10 @@ packages=(
 	pkgconfig
 	python
 	python-pip
-	python-build
+	python-uv
 	python-setuptools
-	python-wheel
- 	python-simple-term-menu
 	python-pyparted
+	python-pydantic
 )
 
 mkdir -p /tmp/archlive/airootfs/root/archinstall-git
@@ -25,8 +24,8 @@ cat <<- _EOF_ | tee /tmp/archlive/airootfs/root/.zprofile
 	cd archinstall-git
 	rm -rf dist
 
-	python -m build --wheel --no-isolation
-	pip install dist/archinstall*.whl --break-system-packages
+	uv build --no-build-isolation --wheel
+	uv pip install dist/*.whl --break-system-packages --system --no-build --no-deps
 
 	echo "This is an unofficial ISO for development and testing of archinstall. No support will be provided."
 	echo "This ISO was built from Git SHA $GITHUB_SHA"
@@ -37,11 +36,11 @@ pacman --noconfirm -S archiso
 
 cp -r /usr/share/archiso/configs/releng/* /tmp/archlive
 
-sed -i /archinstall/d $packages_file
+sed -i /archinstall/d "$packages_file"
 
 # Add packages to the archiso profile packages
 for package in "${packages[@]}"; do
-	echo "$package" >> $packages_file
+	echo "$package" >> "$packages_file"
 done
 
 find /tmp/archlive

@@ -5,18 +5,16 @@
 #   (4. Added the ~/.config directory as an additional option for future reasons)
 #
 # And Keeping this in dict ensures that variables are shared across imports.
-from typing import Any, Dict
-from pathlib import Path
+from typing import TYPE_CHECKING, NotRequired, TypedDict
+
+if TYPE_CHECKING:
+	from archinstall.lib.boot import Boot
+	from archinstall.lib.installer import Installer
 
 
-storage: Dict[str, Any] = {
-	'PROFILE': Path(__file__).parent.parent.joinpath('default_profiles'),
-	'LOG_PATH': Path('/var/log/archinstall'),
-	'LOG_FILE': Path('install.log'),
-	'MOUNT_POINT': Path('/mnt/archinstall'),
-	'ENC_IDENTIFIER': 'ainst',
-	'DISK_TIMEOUTS' : 1, # seconds
-	'DISK_RETRY_ATTEMPTS' : 5, # RETRY_ATTEMPTS * DISK_TIMEOUTS is used in disk operations
-	'CMD_LOCALE':{'LC_ALL':'C'}, # default locale for execution commands. Can be overridden with set_cmd_locale()
-	'CMD_LOCALE_DEFAULT':{'LC_ALL':'C'}, # should be the same as the former. Not be used except in reset_cmd_locale()
-}
+class _StorageDict(TypedDict):
+	active_boot: NotRequired['Boot | None']
+	installation_session: NotRequired['Installer']
+
+
+storage: _StorageDict = {}
